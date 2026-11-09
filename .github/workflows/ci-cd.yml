@@ -98,10 +98,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r app/requirements-dev.txt
 
-      - name: Dependency audit
-        continue-on-error: true
-        run: pip-audit -r app/requirements.txt --format json --output pip-audit.json
-
       - name: Python static analysis
         continue-on-error: true
         run: bandit -r app/app -q -ll
@@ -149,6 +145,9 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-fs.sarif
+
+      - name: Dependency audit
+        run: pip-audit -r app/requirements.txt --format json --output pip-audit.json
 
       - name: Upload dependency audit report
         if: always()

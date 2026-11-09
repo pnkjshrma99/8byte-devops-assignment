@@ -10,8 +10,9 @@ The application logic is intentionally small. The focus is on infrastructure,
 automation, observability, security, and the operational decisions behind them.
 
 > **Local verification:** 12 unit tests (80% coverage) and the PostgreSQL
-> integration test pass; `ruff`, `hadolint`, `shellcheck`, `actionlint`, and
-> `terraform validate` are clean. The Docker image builds, and the Compose stack
+> integration test pass; `ruff`, `pip-audit`, `bandit`, `hadolint`,
+> `shellcheck`, `actionlint`, and `terraform validate` are clean. The Docker
+> image builds, the Trivy critical scan is clean, and the Compose stack
 > (app + PostgreSQL) passed the HTTP smoke test locally. AWS resources are
 > designed but were not created in this workspace.
 
@@ -84,7 +85,7 @@ staging and production cannot drift structurally.
 | Part 2: Build/push on main | Docker multi-stage build, immutable `sha-<commit>` tag, ECR push |
 | Part 2: Deploy staging | New ECS task definition revision, `services-stable` wait, HTTP smoke test |
 | Part 2: Manual production approval | GitHub `production` environment with required reviewers; separate OIDC role |
-| Part 2: Vulnerability scanning | Trivy filesystem/config/image scans; pip-audit report; critical image vulnerabilities block the pipeline |
+| Part 2: Vulnerability scanning | Trivy filesystem/config/image scans; pip-audit blocks known dependency vulnerabilities; critical image vulnerabilities block the pipeline |
 | Part 2: Failure notifications | Slack webhook job on any failed pipeline |
 | Part 3: Infrastructure metrics | CloudWatch ALB, ECS and RDS metrics |
 | Part 3: Application metrics | Request count, 5xx count, client errors and latency emitted by the app as CloudWatch EMF |
@@ -349,7 +350,7 @@ aws logs tail /aws/ecs/8byte-staging/app --follow
 - Ruff
 - Unit tests with coverage gate
 - PostgreSQL integration tests using a service container
-- pip-audit dependency report (artifact)
+- pip-audit dependency audit (blocks on known vulnerabilities)
 - Bandit static analysis
 - Trivy filesystem and Terraform misconfiguration scans
 - Terraform `fmt` and `validate` for both environment roots
@@ -580,6 +581,12 @@ $ TEST_DATABASE_URL=postgresql+psycopg://app:app@localhost:5432/app_test \
 
 $ ruff check app tests
 All checks passed!
+
+$ pip-audit -r app/requirements.txt
+No known vulnerabilities found
+
+$ bandit -r app/app -q -ll
+(clean)
 
 $ terraform fmt -check -recursive infra
 (clean)

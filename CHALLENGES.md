@@ -311,6 +311,28 @@ it removes a hidden dependency on a tool that is not present in every image.
 
 ---
 
+## 16. A pinned dependency became vulnerable
+
+**Problem:** `pip-audit` reported two advisories against `Flask==3.1.0` in the
+2026 vulnerability database (`PYSEC-2026-1377` and `PYSEC-2026-2151`), fixed in
+Flask 3.1.1 and 3.1.3. Pinning dependencies for reproducibility also means they
+do not receive security fixes automatically.
+
+**Resolution:** Update the pin to `Flask==3.1.3`, reinstall the local environment,
+rebuild the Docker image, and rerun unit tests, the PostgreSQL integration test,
+`pip-audit`, and the Trivy image scan. The CI dependency audit now fails the build
+when a known vulnerability is found instead of only producing an artifact.
+
+**Verification:** `pip-audit -r app/requirements.txt` reports no known
+vulnerabilities; the unit and integration tests pass; the Trivy critical image
+scan reports zero critical vulnerabilities.
+
+**Trade-off:** A security update can change behavior, so the pin must be
+revalidated by tests and the image scan. Dependabot or Renovate should open these
+updates automatically in a real repository.
+
+---
+
 ## What I would do differently with more time
 
 - Add an Alembic migration job and run it before the ECS rolling update.
