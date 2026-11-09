@@ -312,6 +312,12 @@ Enable branch protection on `main`: require pull request, require the `Unit
 tests and lint`, `Integration tests (PostgreSQL)`, and `Security and IaC checks`
 checks, and disallow bypass.
 
+> **GitHub plan limitation:** GitHub Free private repositories do not support
+> environment required reviewers, branch protection, or SARIF/code-scanning
+> uploads. Make this repository public or use GitHub Pro before relying on the
+> production approval gate. Without one of those, the workflow still runs, but
+> the approval gate is not enforced and the SARIF upload is skipped.
+
 ### Step 6: Deploy
 
 Push to `main` (or run the workflow after a PR merge). The pipeline:
