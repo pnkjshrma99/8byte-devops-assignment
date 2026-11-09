@@ -689,7 +689,8 @@ environment state lives there. `force_destroy` is intentionally false.
 
 ## Submission links
 
-- GitHub repository: add the public/private URL after pushing
+- GitHub repository: <https://github.com/pnkjshrma99/8byte-devops-assignment>
+  (private by default; make it public or invite the reviewer before submission)
 - Challenges document: [`challenges/Challenges.pdf`](challenges/Challenges.pdf)
   and [`challenges/Challenges.docx`](challenges/Challenges.docx)
 - Loom walkthrough: add the Loom URL after recording; script in
