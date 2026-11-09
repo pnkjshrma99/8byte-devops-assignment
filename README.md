@@ -336,6 +336,11 @@ Push to `main` (or run the workflow after a PR merge). The pipeline:
 
 The pipeline uses GitHub OIDC. No AWS access keys are stored in GitHub.
 
+> Deployment jobs are skipped with a notice when the AWS OIDC and ECS
+> variables are not configured. This keeps CI green for code-only changes.
+> Configure the variables from the Terraform outputs to enable staging and
+> production deployment.
+
 ### Step 7: Verify
 
 ```bash

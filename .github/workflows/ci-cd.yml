@@ -158,10 +158,67 @@ jobs:
           path: pip-audit.json
           if-no-files-found: ignore
 
+  deployment_config:
+    name: Check deployment configuration
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      staging_enabled: ${{ steps.check.outputs.staging_enabled }}
+      production_enabled: ${{ steps.check.outputs.production_enabled }}
+    steps:
+      - name: Check AWS and ECS variables
+        id: check
+        env:
+          STAGING_ROLE: ${{ vars.AWS_ROLE_ARN_STAGING }}
+          STAGING_ECR: ${{ vars.ECR_REPOSITORY_STAGING }}
+          STAGING_CLUSTER: ${{ vars.ECS_CLUSTER_STAGING }}
+          STAGING_SERVICE: ${{ vars.ECS_SERVICE_STAGING }}
+          STAGING_FAMILY: ${{ vars.TASK_FAMILY_STAGING }}
+          STAGING_URL: ${{ vars.STAGING_URL }}
+          PRODUCTION_ROLE: ${{ vars.AWS_ROLE_ARN_PRODUCTION }}
+          PRODUCTION_ECR: ${{ vars.ECR_REPOSITORY_PRODUCTION }}
+          PRODUCTION_CLUSTER: ${{ vars.ECS_CLUSTER_PRODUCTION }}
+          PRODUCTION_SERVICE: ${{ vars.ECS_SERVICE_PRODUCTION }}
+          PRODUCTION_FAMILY: ${{ vars.TASK_FAMILY_PRODUCTION }}
+          PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+        run: |
+          missing_staging=""
+          [ -n "$STAGING_ROLE" ] || missing_staging="$missing_staging AWS_ROLE_ARN_STAGING"
+          [ -n "$STAGING_ECR" ] || missing_staging="$missing_staging ECR_REPOSITORY_STAGING"
+          [ -n "$STAGING_CLUSTER" ] || missing_staging="$missing_staging ECS_CLUSTER_STAGING"
+          [ -n "$STAGING_SERVICE" ] || missing_staging="$missing_staging ECS_SERVICE_STAGING"
+          [ -n "$STAGING_FAMILY" ] || missing_staging="$missing_staging TASK_FAMILY_STAGING"
+          [ -n "$STAGING_URL" ] || missing_staging="$missing_staging STAGING_URL"
+
+          if [ -z "$missing_staging" ]; then
+            echo "staging_enabled=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Staging deployment::All staging variables are configured."
+          else
+            echo "staging_enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Staging deployment skipped::Missing:$missing_staging"
+          fi
+
+          missing_production=""
+          [ -n "$PRODUCTION_ROLE" ] || missing_production="$missing_production AWS_ROLE_ARN_PRODUCTION"
+          [ -n "$PRODUCTION_ECR" ] || missing_production="$missing_production ECR_REPOSITORY_PRODUCTION"
+          [ -n "$PRODUCTION_CLUSTER" ] || missing_production="$missing_production ECS_CLUSTER_PRODUCTION"
+          [ -n "$PRODUCTION_SERVICE" ] || missing_production="$missing_production ECS_SERVICE_PRODUCTION"
+          [ -n "$PRODUCTION_FAMILY" ] || missing_production="$missing_production TASK_FAMILY_PRODUCTION"
+          [ -n "$PRODUCTION_URL" ] || missing_production="$missing_production PRODUCTION_URL"
+
+          if [ -z "$missing_production" ]; then
+            echo "production_enabled=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Production deployment::All production variables are configured."
+          else
+            echo "production_enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Production deployment skipped::Missing:$missing_production"
+          fi
+
   build_and_push:
     name: Build and push staging image
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [unit_tests, integration_tests, security]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.deployment_config.outputs.staging_enabled == 'true'
+    needs: [deployment_config, unit_tests, integration_tests, security]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: staging
@@ -217,8 +274,8 @@ jobs:
 
   deploy_staging:
     name: Deploy staging
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: build_and_push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.deployment_config.outputs.staging_enabled == 'true'
+    needs: [deployment_config, build_and_push]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: staging
@@ -246,8 +303,8 @@ jobs:
 
   deploy_production:
     name: Deploy production (manual approval)
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [build_and_push, deploy_staging]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.deployment_config.outputs.production_enabled == 'true'
+    needs: [deployment_config, build_and_push, deploy_staging]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: production
@@ -310,7 +367,7 @@ jobs:
   notify_failure:
     name: Notify on failure
     if: always() && contains(needs.*.result, 'failure')
-    needs: [unit_tests, integration_tests, security, build_and_push, deploy_staging, deploy_production]
+    needs: [deployment_config, unit_tests, integration_tests, security, build_and_push, deploy_staging, deploy_production]
     runs-on: ubuntu-24.04
     env:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
