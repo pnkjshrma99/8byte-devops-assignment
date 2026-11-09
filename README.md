@@ -9,11 +9,11 @@ approval gate.
 The application logic is intentionally small. The focus is on infrastructure,
 automation, observability, security, and the operational decisions behind them.
 
-> **Local verification:** `pytest` (12 unit tests, 80% coverage), `ruff`, and
-> `terraform validate` pass in this repository. AWS resources are designed but
-> are not created by this workspace; Docker was not available on the build
-> machine, so the image is exercised by the CI pipeline and locally through
-> Gunicorn + SQLite.
+> **Local verification:** 12 unit tests (80% coverage) and the PostgreSQL
+> integration test pass; `ruff`, `hadolint`, `shellcheck`, `actionlint`, and
+> `terraform validate` are clean. The Docker image builds, and the Compose stack
+> (app + PostgreSQL) passed the HTTP smoke test locally. AWS resources are
+> designed but were not created in this workspace.
 
 ---
 
@@ -574,6 +574,10 @@ $ cd app && python -m pytest -m "not integration"
 
 Coverage: 80% (gate: 70%)
 
+$ TEST_DATABASE_URL=postgresql+psycopg://app:app@localhost:5432/app_test \
+    python -m pytest -m integration
+1 passed, 12 deselected
+
 $ ruff check app tests
 All checks passed!
 
@@ -585,14 +589,32 @@ Success! The configuration is valid.
 
 $ terraform -chdir=infra/environments/production validate
 Success! The configuration is valid.
+
+$ hadolint app/Dockerfile
+(clean)
+
+$ actionlint .github/workflows/ci-cd.yml
+$ shellcheck scripts/*.sh app/entrypoint.sh
+(clean)
+
+$ docker build -t 8byte-app:local ./app
+Successfully built 8byte-app:local
+
+$ docker compose up -d --build
+$ ./scripts/smoke-test.sh http://127.0.0.1:8000
+smoke test passed against http://127.0.0.1:8000
 ```
 
 A local Gunicorn + SQLite run verified `/`, `/health/live`, `/health/ready`,
-`/api/items` CRUD, `/metrics`, request IDs, JSON logs, and the EMF payload.
+`/api/items` CRUD, `/metrics`, request IDs, JSON logs, and the EMF payload. A
+Docker Compose run with PostgreSQL verified the multi-stage image build, the
+entrypoint's schema bootstrap, container health checks, CRUD, JSON/EMF logs, and
+the smoke test. The PostgreSQL integration test also passed against the Compose
+database.
 
-The PostgreSQL integration test runs in CI with a `postgres:16-alpine` service
-container. The Docker image build is exercised by the GitHub Actions pipeline;
-Docker was not installed on the local validation machine.
+Terraform was formatted and validated locally, but it was not planned or applied
+against an AWS account. AWS deployment, GitHub Actions execution, and the Loom
+recording remain for the reviewer/author to perform.
 
 ---
 

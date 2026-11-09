@@ -261,8 +261,10 @@ application package, entrypoint, Gunicorn config, and requirements, and
 builder stage creates wheels; the runtime stage installs from the wheel cache and
 runs as UID 10001.
 
-**Verification:** The Dockerfile is reviewed and the pipeline builds it. Docker was
-not available on the local machine, so the image build itself is verified by CI.
+**Verification:** `docker build` completed locally, `hadolint` reports no issues,
+and `docker compose up --build` brought up the application and PostgreSQL. The
+smoke test passed, and the PostgreSQL integration test passed against the Compose
+database.
 
 ---
 
