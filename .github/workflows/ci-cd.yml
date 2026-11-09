@@ -24,7 +24,7 @@ env:
 jobs:
   unit_tests:
     name: Unit tests and lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -48,7 +48,7 @@ jobs:
 
   integration_tests:
     name: Integration tests (PostgreSQL)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     services:
       postgres:
@@ -84,7 +84,7 @@ jobs:
 
   security:
     name: Security and IaC checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -161,7 +161,7 @@ jobs:
     name: Build and push staging image
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [unit_tests, integration_tests, security]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: staging
     outputs:
@@ -218,7 +218,7 @@ jobs:
     name: Deploy staging
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build_and_push
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: staging
     steps:
@@ -247,7 +247,7 @@ jobs:
     name: Deploy production (manual approval)
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [build_and_push, deploy_staging]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: production
     steps:
@@ -310,13 +310,16 @@ jobs:
     name: Notify on failure
     if: always() && contains(needs.*.result, 'failure')
     needs: [unit_tests, integration_tests, security, build_and_push, deploy_staging, deploy_production]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     steps:
       - name: Slack notification
+        if: env.SLACK_WEBHOOK_URL != ''
         continue-on-error: true
         uses: slackapi/slack-github-action@v4.0.0
         with:
-          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook: ${{ env.SLACK_WEBHOOK_URL }}
           webhook-type: incoming-webhook
           payload: |
             {
