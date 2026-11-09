@@ -1,0 +1,5 @@
+bucket         = "8byte-tfstate-<ACCOUNT_ID>-ap-south-1"
+key            = "production/terraform.tfstate"
+region         = "ap-south-1"
+dynamodb_table = "8byte-tf-lock"
+encrypt        = true

@@ -1,0 +1,334 @@
+name: CI/CD
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  security-events: write
+
+concurrency:
+  group: ci-cd-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PYTHON_VERSION: "3.12"
+  AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+  IMAGE_TAG: sha-${{ github.sha }}
+
+jobs:
+  unit_tests:
+    name: Unit tests and lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: app/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r app/requirements-dev.txt
+
+      - name: Ruff
+        working-directory: app
+        run: ruff check app tests
+
+      - name: Unit tests
+        working-directory: app
+        run: python -m pytest -m "not integration" --cov=app --cov-report=term-missing --cov-fail-under=70
+
+  integration_tests:
+    name: Integration tests (PostgreSQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: app_test
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app -d app_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: app/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r app/requirements-dev.txt
+
+      - name: Integration tests
+        working-directory: app
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://app:app@localhost:5432/app_test
+        run: python -m pytest -m integration -q
+
+  security:
+    name: Security and IaC checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: app/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r app/requirements-dev.txt
+
+      - name: Dependency audit
+        continue-on-error: true
+        run: pip-audit -r app/requirements.txt --format json --output pip-audit.json
+
+      - name: Python static analysis
+        continue-on-error: true
+        run: bandit -r app/app -q -ll
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.17.1"
+
+      - name: Terraform format
+        run: terraform fmt -check -recursive infra
+
+      - name: Terraform validate (staging)
+        run: |
+          terraform -chdir=infra/environments/staging init -backend=false -input=false
+          terraform -chdir=infra/environments/staging validate
+
+      - name: Terraform validate (production)
+        run: |
+          terraform -chdir=infra/environments/production init -backend=false -input=false
+          terraform -chdir=infra/environments/production validate
+
+      - name: Trivy filesystem and config scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-fs.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+
+      - name: Trivy Terraform misconfiguration scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: config
+          scan-ref: infra
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "0"
+
+      - name: Upload Trivy SARIF
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-fs.sarif
+
+      - name: Upload dependency audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-report
+          path: pip-audit.json
+          if-no-files-found: ignore
+
+  build_and_push:
+    name: Build and push staging image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [unit_tests, integration_tests, security]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: staging
+    outputs:
+      image: ${{ steps.image_meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_STAGING }}
+          role-session-name: gha-staging-build
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        env:
+          ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY_STAGING }}
+        run: |
+          registry="${ECR_REPOSITORY%%/*}"
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "$registry"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        id: meta
+        uses: docker/build-push-action@v6
+        with:
+          context: ./app
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          tags: ${{ vars.ECR_REPOSITORY_STAGING }}:${{ env.IMAGE_TAG }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Set image output
+        id: image_meta
+        run: echo "image=${{ vars.ECR_REPOSITORY_STAGING }}:${{ env.IMAGE_TAG }}" >> "$GITHUB_OUTPUT"
+
+      - name: Scan the image for critical vulnerabilities
+        env:
+          IMAGE: ${{ vars.ECR_REPOSITORY_STAGING }}:${{ env.IMAGE_TAG }}
+        run: |
+          docker pull "$IMAGE"
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:0.58.1 image --image-src docker \
+            --exit-code 1 --severity CRITICAL --ignore-unfixed "$IMAGE"
+
+  deploy_staging:
+    name: Deploy staging
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build_and_push
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_STAGING }}
+          role-session-name: gha-staging-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy the new task definition
+        run: |
+          chmod +x scripts/*.sh
+          ./scripts/deploy.sh \
+            "${{ vars.ECS_CLUSTER_STAGING }}" \
+            "${{ vars.ECS_SERVICE_STAGING }}" \
+            "${{ needs.build_and_push.outputs.image }}" \
+            "${{ vars.TASK_FAMILY_STAGING }}" \
+            "${{ github.sha }}"
+
+      - name: Smoke test staging
+        run: ./scripts/smoke-test.sh "${{ vars.STAGING_URL }}"
+
+  deploy_production:
+    name: Deploy production (manual approval)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build_and_push, deploy_staging]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_PRODUCTION }}
+          role-session-name: gha-production-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to production ECR
+        env:
+          ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY_PRODUCTION }}
+        run: |
+          registry="${ECR_REPOSITORY%%/*}"
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "$registry"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push the approved commit
+        uses: docker/build-push-action@v6
+        with:
+          context: ./app
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          tags: ${{ vars.ECR_REPOSITORY_PRODUCTION }}:${{ env.IMAGE_TAG }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan the production image
+        env:
+          IMAGE: ${{ vars.ECR_REPOSITORY_PRODUCTION }}:${{ env.IMAGE_TAG }}
+        run: |
+          docker pull "$IMAGE"
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:0.58.1 image --image-src docker \
+            --exit-code 1 --severity CRITICAL --ignore-unfixed "$IMAGE"
+
+      - name: Deploy the new task definition
+        run: |
+          chmod +x scripts/*.sh
+          ./scripts/deploy.sh \
+            "${{ vars.ECS_CLUSTER_PRODUCTION }}" \
+            "${{ vars.ECS_SERVICE_PRODUCTION }}" \
+            "${{ vars.ECR_REPOSITORY_PRODUCTION }}:${{ env.IMAGE_TAG }}" \
+            "${{ vars.TASK_FAMILY_PRODUCTION }}" \
+            "${{ github.sha }}"
+
+      - name: Smoke test production
+        run: ./scripts/smoke-test.sh "${{ vars.PRODUCTION_URL }}"
+
+  notify_failure:
+    name: Notify on failure
+    if: always() && contains(needs.*.result, 'failure')
+    needs: [unit_tests, integration_tests, security, build_and_push, deploy_staging, deploy_production]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Slack notification
+        continue-on-error: true
+        uses: slackapi/slack-github-action@v1.27.0
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        with:
+          payload: |
+            {
+              "text": "CI/CD failed for ${{ github.repository }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": ":rotating_light: *CI/CD failed*\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                  }
+                }
+              ]
+            }
