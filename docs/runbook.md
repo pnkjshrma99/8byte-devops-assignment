@@ -7,7 +7,7 @@ export AWS_REGION=ap-south-1
 export CLUSTER=8byte-staging
 export SERVICE=8byte-app
 export FAMILY=8byte-staging-app
-export IMAGE=<account>.dkr.ecr.ap-south-1.amazonaws.com/8byte-staging/app:sha-<commit>
+export IMAGE=<account>.dkr.ecr.ap-south-1.amazonaws.com/8byte-staging/app:sha-<commit>-<run_id>-<run_attempt>
 
 ./scripts/deploy.sh "$CLUSTER" "$SERVICE" "$IMAGE" "$FAMILY" "<commit>"
 ./scripts/smoke-test.sh "$(terraform -chdir=infra/environments/staging output -raw app_url)"

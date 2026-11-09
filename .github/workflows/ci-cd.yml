@@ -19,7 +19,7 @@ concurrency:
 env:
   PYTHON_VERSION: "3.12"
   AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
-  IMAGE_TAG: sha-${{ github.sha }}
+  IMAGE_TAG: sha-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
   unit_tests:

@@ -82,7 +82,7 @@ staging and production cannot drift structurally.
 | Part 1: State management | S3 backend with versioning/encryption + DynamoDB lock table, created in `infra/bootstrap` |
 | Part 1: Outputs | `infra/modules/stack/outputs.tf` and environment outputs |
 | Part 2: Tests on PR | Unit tests, PostgreSQL integration tests, Ruff, Bandit, pip-audit, Trivy, Terraform format/validate |
-| Part 2: Build/push on main | Docker multi-stage build, immutable `sha-<commit>` tag, ECR push |
+| Part 2: Build/push on main | Docker multi-stage build, immutable `sha-<commit>-<run_id>-<run_attempt>` tag, ECR push |
 | Part 2: Deploy staging | New ECS task definition revision, `services-stable` wait, HTTP smoke test |
 | Part 2: Manual production approval | GitHub `production` environment with required reviewers; separate OIDC role |
 | Part 2: Vulnerability scanning | Trivy filesystem/config/image scans; pip-audit blocks known dependency vulnerabilities; critical image vulnerabilities block the pipeline |
@@ -318,7 +318,8 @@ Push to `main` (or run the workflow after a PR merge). The pipeline:
 
 1. Runs unit and integration tests, lint, security scans, and Terraform
    validation.
-2. Builds and pushes the staging image with an immutable `sha-<commit>` tag.
+2. Builds and pushes the staging image with an immutable
+   `sha-<commit>-<run_id>-<run_attempt>` tag.
 3. Scans the image for critical vulnerabilities.
 4. Registers a new ECS task definition, updates staging, waits for stability, and
    runs the smoke test.

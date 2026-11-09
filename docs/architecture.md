@@ -49,7 +49,7 @@ sequenceDiagram
 
     GH->>OIDC: Assume role with web identity
     OIDC-->>GH: Temporary credentials
-    GH->>ECR: Push sha-<commit>
+    GH->>ECR: Push sha-<commit>-<run_id>-<run_attempt>
     GH->>ECR: Scan image
     GH->>ECS: Describe latest task definition
     GH->>ECS: Register new revision (image + APP_VERSION)

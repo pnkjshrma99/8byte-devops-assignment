@@ -240,13 +240,15 @@ different image if the base image or build cache changes.
 
 **Resolution:** The pipeline deploys the same commit to staging, then after manual
 approval rebuilds that exact commit and pushes it to the production ECR repository
-with the same immutable `sha-<commit>` tag. This is simpler than cross-repository
-promotion and keeps production credentials out of the staging build. The
-limitation is documented; the roadmap calls for a shared artifact repository or
-an explicit `docker pull`/retag promotion step with cosign verification.
+with the same immutable `sha-<commit>-<run_id>-<run_attempt>` tag. This is
+simpler than cross-repository promotion and keeps production credentials out of
+the staging build. The limitation is documented; the roadmap calls for a shared
+artifact repository or an explicit `docker pull`/retag promotion step with cosign
+verification.
 
-**Verification:** The workflow uses `github.sha` for both tags and never deploys a
-mutable `latest` tag.
+**Verification:** The workflow derives both tags from `github.sha` plus the run
+identity (`github.run_id` and `github.run_attempt`), so reruns do not collide in
+an immutable ECR repository, and it never deploys a mutable `latest` tag.
 
 ---
 

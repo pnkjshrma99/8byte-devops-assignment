@@ -105,7 +105,7 @@ Talking points:
 
 - PR: Ruff, unit tests with coverage gate, PostgreSQL integration tests, pip-audit,
   Bandit, Trivy filesystem/Terraform, Terraform validate.
-- Main: build/push immutable `sha-<commit>`, Trivy image scan, ECS deploy, wait
+- Main: build/push immutable `sha-<commit>-<run_id>-<run_attempt>`, Trivy image scan, ECS deploy, wait
   `services-stable`, smoke test.
 - Production: GitHub Environment with required reviewers; separate OIDC role whose
   trust is scoped to `environment:production`. No static AWS keys.
